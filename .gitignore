@@ -4,7 +4,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -21,21 +20,36 @@ wheels/
 .installed.cfg
 *.egg
 
-# Logs and sensitive data
+# Logs và dữ liệu nhạy cảm
 logs/
 *.log
 *.enc
 *.txt
-!requirements.txt
-!README.md
 screenshots/
+*.png
+*.jpg
+*.jpeg
 config.json
+email_config.json
+content_analysis.json
+sensitive_data.log
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+.DS_Store
+
+# Môi trường ảo
+venv/
+env/
+ENV/
+
+# File tạm
+*.tmp
+*.temp
+*.bak
 
 # Environment
 .env

