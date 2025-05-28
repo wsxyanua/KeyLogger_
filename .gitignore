@@ -21,9 +21,15 @@ wheels/
 .installed.cfg
 *.egg
 
-# Logs
+# Logs and sensitive data
 logs/
 *.log
+*.enc
+*.txt
+!requirements.txt
+!README.md
+screenshots/
+config.json
 
 # IDE
 .idea/
